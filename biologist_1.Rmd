@@ -1,0 +1,24 @@
+---
+title: "Biologist_1"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(hgu133plus2.db)
+library(GSEABase)
+```
+
+## R Markdown
+
+
+```{r cars}
+de_res <- read_csv("/project/bf528/project_1/data/differential_expression_results.csv")
+```
+
+
+
+```{r pressure, echo=FALSE}
+
+```
+

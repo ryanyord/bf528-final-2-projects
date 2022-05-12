@@ -7,18 +7,150 @@ output: html_document
 library(tidyverse)
 library(hgu133plus2.db)
 library(GSEABase)
+library(kableExtra)
+library(gt)
+library(gtExtras)
+library(GSEABase)
 ```
 
 ## R Markdown
 
 
-```{r cars}
-de_res <- read_csv("/project/bf528/project_1/data/differential_expression_results.csv")
+```{r}
+#load DE results
+de_res <- read_csv("/projectnb/bf528/users/frizzled/project_1/project-1-frizzled-1/analyst/Part5.4raw.csv")
+
+# Get gene symbols from hgu133plus2.db and merge to dataset
+probeid_symbol_df <- as_tibble(AnnotationDbi::select(hgu133plus2.db, de_res$probe,"SYMBOL"))
+
+probeid_symbol_df_unique <- as_tibble(probeid_symbol_df[!duplicated(probeid_symbol_df[ , c("SYMBOL")]),]) %>%
+  dplyr::rename(probe = PROBEID, symbol = SYMBOL)
+
+de_res_w_symbols <- merge(de_res, probeid_symbol_df_unique, by = "probe")
+#remove duplicates
+de_res_w_symbols <-  as_tibble(de_res_w_symbols[!duplicated(de_res_w_symbols[ , c("probe")]),])
 ```
 
 
 
-```{r pressure, echo=FALSE}
+```{r}
+probeid_symbol_df_unique
+de_res
+de_res_w_symbols
+```
 
+```{r}
+#top 1000 up-regulated
+up_1k <- de_res_w_symbols %>%
+  dplyr::arrange(desc(t)) %>%
+  head(1000)
+
+#top 1000 down-regulated
+down_1k <- de_res_w_symbols %>%
+  dplyr::arrange(t)  %>%
+  head(1000)
+
+up_down <- rbind(up_1k, down_1k)
+
+# Deliverable Table
+top_10_up <- head(up_1k, 10)
+top_10_down <- head(down_1k, 10)
+
+top_10_up %>%
+  kbl() %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+top_10_down %>%
+  kbl() %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+
+top_10_down %>%
+  gt() %>% 
+  gt_theme_nytimes()
+
+top_10_up %>%
+  gt() %>% 
+  gt_theme_nytimes()
+
+```
+
+```{r}
+hallmark_pways <- getGmt("/projectnb/bf528/users/frizzled/project_1/project-1-frizzled-1/biologist-files/h.all.v7.5.1.symbols.gmt.txt")
+stringr::str_glue('Hallmark Pathways: {length(hallmark_pways)}') 
+
+kegg_pways <- getGmt("/projectnb/bf528/users/frizzled/project_1/project-1-frizzled-1/biologist-files/c2.cp.kegg.v7.5.1.symbols.gmt.txt")
+stringr::str_glue('Kegg Pathways: {length(kegg_pways)}') 
+
+go_pways <- getGmt("/projectnb/bf528/users/frizzled/project_1/project-1-frizzled-1/biologist-files/c5.go.v7.5.1.symbols.gmt.txt")
+stringr::str_glue('GO Pathways: {length(go_pways)}') 
+
+```
+
+```{r}
+# Fisher Test
+
+hallmark_fisher <- tibble(gene_set = character(), diff = numeric(), n_diff = numeric())
+
+for (i in hallmark_pways) {
+    diff_ <- sum(up_down$symbol %in% geneIds(i))
+    hallmark_fisher <- add_row(hallmark_fisher, gene_set = setName(i), diff = diff_, n_diff = (length(geneIds(i)) - diff_))
+}
+
+kegg_fisher <- tibble(gene_set = character(), diff = numeric(), n_diff = numeric())
+
+for (i in kegg_pways) {
+    diff_ <- sum(up_down$symbol %in% geneIds(i))
+    kegg_fisher <- add_row(kegg_fisher, gene_set = setName(i), diff = diff_, n_diff = (length(geneIds(i)) - diff_))
+}
+
+go_fisher <- tibble(gene_set = character(), diff = numeric(), n_diff = numeric())
+
+for (i in go_pways) {
+    diff_ <- sum(up_down$symbol %in% geneIds(i))
+   go_fisher <- add_row(go_fisher, gene_set = setName(i), diff = diff_, n_diff = (length(geneIds(i)) - diff_))
+}
+
+all_pways_fisher <- rbind(hallmark_fisher, kegg_fisher, go_fisher) %>%
+  mutate(diff_ni = 2000 - diff, n_diff_ni = length(de_res_w_symbols$symbol)-diff_ni)
+
+
+fisher_test <- all_pways_fisher %>%
+  rowwise() %>% 
+  mutate(estimate = fisher.test(matrix(c(diff, diff_ni, n_diff, n_diff_ni), nrow =2))$estimate, p_value = fisher.test(matrix(c(diff, diff_ni, n_diff, n_diff_ni), nrow =2))$p.value)
+
+fisher_test$p_adj <- p.adjust(fisher_test$p_value, method = "fdr")
+```
+
+```{r}
+# Top Hallmark
+top_3_hallmark <- fisher_test %>%
+  dplyr::filter(stringr::str_detect(gene_set, 'HALLMARK')) %>%
+  dplyr::arrange(p_adj) %>%
+  head(3) %>%
+  dplyr::select(-diff,-n_diff,-diff_ni,-n_diff_ni) %>%
+  mutate(Pathway = 'Hallmark', .before = 'gene_set')
+
+#Top KEGG
+top_3_kegg <- fisher_test %>%
+  dplyr::filter(stringr::str_detect(gene_set, 'KEGG')) %>%
+  dplyr::arrange(p_adj) %>%
+  head(3) %>%
+  dplyr::select(-diff,-n_diff,-diff_ni,-n_diff_ni) %>%
+  mutate(Pathway = 'KEGG', .before = 'gene_set')
+
+#Top GO
+top_3_go <- fisher_test %>%
+  dplyr::filter(stringr::str_detect(gene_set, 'GOBP')) %>%
+  dplyr::arrange(p_adj) %>%
+  head(3) %>%
+  dplyr::select(-diff,-n_diff,-diff_ni,-n_diff_ni) %>%
+  mutate(Pathway = 'GO', .before = 'gene_set')
+
+all_top_3 <- rbind(top_3_hallmark,top_3_kegg,top_3_go)
+
+all_top_3 %>%
+  gt() %>% 
+  gt_theme_nytimes()
 ```
 

@@ -1,28 +1,131 @@
 ---
-title: "Biologist_1"
+title: "Biologist_3"
 output: html_document
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+```{r}
+library(tidyverse)
+library(pheatmap)
+library(gplots)
 ```
 
-## R Markdown
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+```{r}
+#----------------------Microarray-----------------------------------------------------------------------
+# Load in DE results and map gene symbols
+affy_map <- read.csv("/projectnb/bf528/users/frizzled/project_3/biologist/Data/refseq_affy_map.csv") %>%
+  dplyr::rename(Geneid = PROBEID)
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+AFL_microarray <- read.csv("/projectnb/bf528/users/frizzled/project_3/biologist/Data/AFL_limma_results.csv") %>%
+  merge(affy_map, by = "Geneid")
+AFL_microarray <-  as_tibble(AFL_microarray[!duplicated(AFL_microarray[ , c("Geneid")]),]) #remove duplicates
 
-```{r cars}
-summary(cars)
+MIC_microarray <- read.csv("/projectnb/bf528/users/frizzled/project_3/biologist/Data/MIC_limma_results.csv")  %>%
+  merge(affy_map, by = "Geneid")
+MIC_microarray <-  as_tibble(MIC_microarray[!duplicated(MIC_microarray[ , c("Geneid")]),])
+
+PIR_microarray <- read.csv("/projectnb/bf528/users/frizzled/project_3/biologist/Data/PIR_limma_results.csv")  %>%
+  merge(affy_map, by = "Geneid")
+PIR_microarray <-  as_tibble(PIR_microarray[!duplicated(PIR_microarray[ , c("Geneid")]),])
+
+#----------------------RNA-Seq-----------------------------------------------------------------------
+# DE results and map gene symbols
+affy_map <- affy_map %>%
+  dplyr::rename(PROBEID = Geneid, Geneid = REFSEQ)
+
+AFL_rnaseq <- read.csv("/projectnb/bf528/users/frizzled/project_3/biologist/Data/AFLATOXIN_B1.csv") %>%
+  left_join(affy_map, by='Geneid')
+AFL_rnaseq <-  as_tibble(AFL_rnaseq[!duplicated(AFL_rnaseq[ , c("Geneid")]),])
+
+
+MIC_rnaseq <- read.csv("/projectnb/bf528/users/frizzled/project_3/biologist/Data/AFLATOXIN_B1.csv")%>%
+  left_join(affy_map, by='Geneid')
+MIC_rnaseq <-  as_tibble(MIC_rnaseq[!duplicated(MIC_rnaseq[ , c("Geneid")]),])
+
+
+PIR_rnaseq <- read.csv("/projectnb/bf528/users/frizzled/project_3/biologist/Data/AFLATOXIN_B1.csv")%>%
+  left_join(affy_map, by='Geneid')
+PIR_rnaseq <-  as_tibble(PIR_rnaseq[!duplicated(PIR_rnaseq[ , c("Geneid")]),])
+  
+#----------------------Shared Between Microarray & RNA-Seq---------------------------------------------------------- 
+#Merge based on shared symbols and grab top 1000 by adj-pvalue
+
+AFL_shared <- merge(AFL_microarray, AFL_rnaseq, by='SYMBOL')
+AFL_shared <-  as_tibble(AFL_shared[!duplicated(AFL_shared[ , c("SYMBOL")]),]) %>%
+  dplyr::arrange(adj.P.Val) %>%
+  head(1000)
+
+MIC_shared <- merge(MIC_microarray, MIC_rnaseq, by='SYMBOL')
+MIC_shared <-  as_tibble(MIC_shared[!duplicated(MIC_shared[ , c("SYMBOL")]),]) %>%
+  dplyr::arrange(adj.P.Val) %>%
+  head(1000)
+
+PIR_shared <- merge(PIR_microarray, PIR_rnaseq, by='SYMBOL')
+PIR_shared <-  as_tibble(PIR_shared[!duplicated(PIR_shared[ , c("SYMBOL")]),]) %>%
+  dplyr::arrange(adj.P.Val) %>%
+  head(1000)
+
+#Grab Symbols for enrichment analysis
+write(AFL_shared$SYMBOL, 'AFL_shared_symbols.csv')
+write(MIC_shared$SYMBOL, 'MIC_shared_symbols.csv')
+write(PIR_shared$SYMBOL, 'PIR_shared_symbols.csv')
+
 ```
 
-## Including Plots
+```{r}
+#Heatmap
+AFL_hm <- read.csv("/projectnb/bf528/users/frizzled/project_3/biologist/Data/norm_counts_AFLATOXIN_B1.csv")
 
-You can also embed plots, for example:
+MIC_hm <- read.csv("/projectnb/bf528/users/frizzled/project_3/biologist/Data/norm_counts_MICONAZOLE.csv")
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+PIR_hm <- read.csv("/projectnb/bf528/users/frizzled/project_3/biologist/Data/norm_counts_PIRINIXIC_ACID.csv")
+
+
+# Combined subset of 3 from each 
+combined_hm <- full_join(AFL_hm[,1:4], MIC_hm[,1:4], by='X') %>%
+          full_join(PIR_hm[,1:4], by='X')
+
+filtered_counts <- function(dataf, filter_1) {
+  df <- dataf %>%
+    dplyr::select(-X)
+
+  df$variance <- apply(df, 1, var)
+
+  df <- dplyr::arrange(df, variance)
+
+  df <- mutate(df, var_rank = row_number())
+
+  # Filter percentile filter 1
+  df <- df %>%
+    filter(((var_rank / nrow(df)) * 100 > filter_1 ))
+
+
+  return(df)
+}
+
+
+
+draw_heatmap <- function(filtered_df) {
+
+  filtered_df <- filtered_df %>%
+    dplyr::select(-variance, -var_rank) %>%
+    na.omit()
+
+  filtered_matrix <- data.matrix(filtered_df)
+
+
+  return(pheatmap(filtered_matrix, scale='row',  show_colnames = T, show_rownames = F))
+}
+
+
+
+# Filter top 90+ percentile by variance
+filtered_AFL_hm <- filtered_counts(combined_hm, 80)
+
+
+
+draw_heatmap(filtered_AFL_hm)
+
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+

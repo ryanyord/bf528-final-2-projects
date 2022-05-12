@@ -32,13 +32,6 @@ de_res_w_symbols <-  as_tibble(de_res_w_symbols[!duplicated(de_res_w_symbols[ , 
 ```
 
 
-
-```{r}
-probeid_symbol_df_unique
-de_res
-de_res_w_symbols
-```
-
 ```{r}
 #top 1000 up-regulated
 up_1k <- de_res_w_symbols %>%
@@ -121,6 +114,15 @@ fisher_test <- all_pways_fisher %>%
 
 fisher_test$p_adj <- p.adjust(fisher_test$p_value, method = "fdr")
 ```
+
+```{r}
+fisher_test %>%
+  filter(p_adj < 0.05) #446
+```
+
+
+
+
 
 ```{r}
 # Top Hallmark

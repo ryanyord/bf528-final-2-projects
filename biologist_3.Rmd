@@ -128,4 +128,14 @@ draw_heatmap(filtered_AFL_hm)
 
 ```
 
+```{r}
+library(gt)
+library(gtExtras)
+
+deliv_table <- read_csv('bio3_table.csv')
+deliv_table %>%
+  gt() %>% 
+  gt_theme_nytimes()
+
+```
 
